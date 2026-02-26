@@ -14,12 +14,6 @@
     return n;
   }
 
-  function parsePct(s) {
-    if (!s || typeof s !== 'string') return 0;
-    const n = parseFloat(s.replace('%', '').trim());
-    return isNaN(n) ? 0 : n;
-  }
-
   function parseDate(s) {
     if (!s || typeof s !== 'string') return null;
     const d = new Date(s);
@@ -42,14 +36,10 @@
       const symbol = symbolEl ? (symbolEl.textContent || '').trim() : getCellText(tr, 'Symbol');
       const dateText = getCellText(tr, 'Date');
       const date = parseDate(dateText);
-      const winPctText = tr.querySelector('.win-badge') ? (tr.querySelector('.win-badge').textContent || '').trim() : getCellText(tr, 'Win %');
-      const winPct = parsePct(winPctText);
-      const avgWin = parseCurrency(getCellText(tr, 'Avg Win'));
-      const avgLoss = parseCurrency(getCellText(tr, 'Avg Loss'));
       const commission = parseCurrency(getCellText(tr, 'Commission'));
       const grossPnl = netPnl + commission;
       return {
-        date: date,
+        date,
         dateStr: dateText,
         symbol,
         netPnl,
@@ -57,9 +47,6 @@
         commission,
         pnlHigh,
         pnlLow,
-        winPct,
-        avgWin,
-        avgLoss,
         dayOfWeek: date ? date.getDay() : null,
         dayName: date ? DAYS[date.getDay()] : '',
       };
@@ -69,25 +56,16 @@
   function computeStats(rows) {
     if (!rows.length) {
       return {
-        sessions: 0,
         profitableDays: 0,
         losingDays: 0,
         dayWinRatePct: 0,
-        grossProfit: 0,
         grossPnl: 0,
-        netProfit: 0,
-        netLoss: 0,
         totalCommission: 0,
         profitFactor: 0,
         netPnl: 0,
         expectancy: 0,
-        avgWinPerDay: 0,
-        avgLossPerDay: 0,
-        bestDayNet: 0,
         worstDayNet: 0,
-        bestIntradayHigh: 0,
         worstIntradayLow: 0,
-        avgWinPct: 0,
       };
     }
     const byDate = {};
@@ -124,35 +102,21 @@
     const avgWinPerDay = profitable.length ? profitable.reduce((s, r) => s + r.netPnl, 0) / profitable.length : 0;
     const avgLossPerDay = losing.length ? losing.reduce((s, r) => s + Math.abs(r.netPnl), 0) / losing.length : 0;
     const expectancy = (dayWinRatePct / 100) * avgWinPerDay - (1 - dayWinRatePct / 100) * avgLossPerDay;
-    const bestDayNet = profitable.length ? Math.max(...profitable.map((r) => r.netPnl)) : 0;
     const worstDayNet = losing.length ? Math.min(...losing.map((r) => r.netPnl)) : 0;
     const pnlLows = rows.map((r) => r.pnlLow).filter((v) => typeof v === 'number' && !isNaN(v));
-    const pnlHighs = rows.map((r) => r.pnlHigh).filter((v) => typeof v === 'number' && !isNaN(v));
     const worstIntradayLow = pnlLows.length ? Math.min(...pnlLows) : (losing.length ? worstDayNet : 0);
-    const bestIntradayHigh = pnlHighs.length ? Math.max(...pnlHighs) : (profitable.length ? bestDayNet : 0);
-    const winPcts = rows.map((r) => r.winPct).filter((p) => p > 0);
-    const avgWinPct = winPcts.length ? winPcts.reduce((a, b) => a + b, 0) / winPcts.length : 0;
 
     return {
-      sessions: rows.length,
       profitableDays,
       losingDays,
       dayWinRatePct,
-      grossProfit,
       grossPnl,
-      netProfit,
-      netLoss,
       totalCommission,
       profitFactor,
       netPnl,
       expectancy,
-      avgWinPerDay,
-      avgLossPerDay,
-      bestDayNet,
       worstDayNet,
-      bestIntradayHigh,
       worstIntradayLow,
-      avgWinPct,
     };
   }
 
@@ -192,14 +156,10 @@
     const byDay = groupByDayOfWeek(allRows);
     const symbols = Object.keys(bySymbol).sort();
     let currentStats = computeStats(allRows);
-    let sliceKey = null;
-
     if (viewMode === 'asset' && assetKey && bySymbol[assetKey]) {
       currentStats = computeStats(bySymbol[assetKey]);
-      sliceKey = assetKey;
     } else if (viewMode === 'day' && dayKey && byDay[dayKey]) {
       currentStats = computeStats(byDay[dayKey]);
-      sliceKey = dayKey;
     }
 
     const assetSelectOpts = symbols.map((sym) => `<option value="${sym}" ${assetKey === sym ? 'selected' : ''}>${sym}</option>`).join('');
@@ -207,26 +167,31 @@
 
     container.innerHTML = `
     <div class="lucid-stats-panel">
-      <div class="lucid-stats-header">
-        <h3 class="lucid-stats-title">Trading stats</h3>
-        <div class="lucid-stats-view-toggle">
-          <button type="button" class="lucid-toggle-btn ${viewMode === 'all' ? 'active' : ''}" data-view="all">All</button>
-          <button type="button" class="lucid-toggle-btn ${viewMode === 'asset' ? 'active' : ''}" data-view="asset">By asset</button>
-          <button type="button" class="lucid-toggle-btn ${viewMode === 'day' ? 'active' : ''}" data-view="day">By day</button>
+      <div class="lucid-stats-section-header">
+        <div class="lucid-stats-header-left">
+          <h3 class="lucid-stats-section-title">
+            <svg class="lucid-stats-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            Trading stats
+          </h3>
+          <div class="lucid-stats-view-toggle">
+            <button type="button" class="lucid-toggle-btn ${viewMode === 'all' ? 'active' : ''}" data-view="all">All</button>
+            <button type="button" class="lucid-toggle-btn ${viewMode === 'asset' ? 'active' : ''}" data-view="asset">By asset</button>
+            <button type="button" class="lucid-toggle-btn ${viewMode === 'day' ? 'active' : ''}" data-view="day">By day</button>
+          </div>
+          ${viewMode === 'asset' && symbols.length ? `
+            <div class="lucid-slice-inline">
+              <label class="lucid-slice-label">Asset</label>
+              <select class="lucid-slice-select" id="lucid-asset-select">${assetSelectOpts}</select>
+            </div>
+          ` : ''}
+          ${viewMode === 'day' ? `
+            <div class="lucid-slice-inline">
+              <label class="lucid-slice-label">Day</label>
+              <select class="lucid-slice-select" id="lucid-day-select">${daySelectOpts}</select>
+            </div>
+          ` : ''}
         </div>
       </div>
-      ${viewMode === 'asset' && symbols.length ? `
-        <div class="lucid-slice-selector">
-          <label class="lucid-slice-label">Asset</label>
-          <select class="lucid-slice-select" id="lucid-asset-select">${assetSelectOpts}</select>
-        </div>
-      ` : ''}
-      ${viewMode === 'day' ? `
-        <div class="lucid-slice-selector">
-          <label class="lucid-slice-label">Day of week</label>
-          <select class="lucid-slice-select" id="lucid-day-select">${daySelectOpts}</select>
-        </div>
-      ` : ''}
       <div class="lucid-stats-grid">
         <div class="lucid-stat-card lucid-stat-card-hero">
           <span class="lucid-stat-label">Net P&L</span>
@@ -237,16 +202,12 @@
           <span class="lucid-stat-value ${currentStats.expectancy > 0 ? 'positive' : currentStats.expectancy < 0 ? 'negative' : ''}">${formatMoney(currentStats.expectancy)}</span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Day win rate</span>
-          <span class="lucid-stat-value">${formatPct(currentStats.dayWinRatePct)}</span>
+          <span class="lucid-stat-label">${viewMode === 'asset' ? 'Day win rate (asset)' : viewMode === 'day' ? 'Day win rate (weekday)' : 'Day win rate'}</span>
+          <span class="lucid-stat-value">${formatPct(currentStats.dayWinRatePct)} <span class="lucid-stat-sub">(${currentStats.profitableDays} / ${currentStats.losingDays})</span></span>
         </div>
         <div class="lucid-stat-card">
           <span class="lucid-stat-label">Profit factor</span>
           <span class="lucid-stat-value">${formatNum(currentStats.profitFactor, 2)}</span>
-        </div>
-        <div class="lucid-stat-card">
-          <span class="lucid-stat-label">${viewMode === 'asset' ? 'Profitable / Losing days (this asset)' : viewMode === 'day' ? 'Profitable / Losing days (this weekday)' : 'Profitable / Losing days'}</span>
-          <span class="lucid-stat-value">${currentStats.profitableDays} / ${currentStats.losingDays}</span>
         </div>
         <div class="lucid-stat-card">
           <span class="lucid-stat-label">Gross PnL</span>
@@ -274,7 +235,6 @@
         const nextAsset = v === 'asset' && symbols.length ? symbols[0] : null;
         const nextDay = v === 'day' ? WORK_DAYS[0] : null;
         renderPanel(container, allRows, v, nextAsset, nextDay);
-        attachListeners(container, allRows);
       });
     });
 
@@ -282,7 +242,6 @@
     if (assetSelect) {
       assetSelect.addEventListener('change', () => {
         renderPanel(container, allRows, 'asset', assetSelect.value, null);
-        attachListeners(container, allRows);
       });
     }
 
@@ -290,13 +249,8 @@
     if (daySelect) {
       daySelect.addEventListener('change', () => {
         renderPanel(container, allRows, 'day', null, daySelect.value);
-        attachListeners(container, allRows);
       });
     }
-  }
-
-  function attachListeners(container, allRows) {
-    // Re-attach is done inside renderPanel for the new DOM
   }
 
   function injectPanel() {
@@ -308,7 +262,6 @@
       const rows = parseTable(table);
       if (!rows.length) return true;
       renderPanel(wrapper, rows, 'all', null, null);
-      attachListeners(wrapper, rows);
       return true;
     }
 
@@ -329,9 +282,8 @@
 
     if (rows.length) {
       renderPanel(wrapper, rows, 'all', null, null);
-      attachListeners(wrapper, rows);
     } else {
-      wrapper.innerHTML = '<div class="lucid-stats-panel"><div class="lucid-stats-header"><h3 class="lucid-stats-title">Trading stats</h3></div><p class="lucid-stats-empty">No trading history data yet. Open Account Details and ensure the table has loaded.</p></div>';
+      wrapper.innerHTML = '<div class="lucid-stats-panel"><div class="lucid-stats-section-header"><h3 class="lucid-stats-section-title">Trading stats</h3></div><p class="lucid-stats-empty">No trading history data yet. Open Account Details and ensure the table has loaded.</p></div>';
     }
     return true;
   }
