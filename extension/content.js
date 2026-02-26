@@ -311,10 +311,21 @@
     run();
   }
 
-  const observer = new MutationObserver(() => {
-    if (document.querySelector('.data-table-section .data-table') || document.querySelector('table.data-table')) {
-      injectPanel();
-    }
+  let injectDebounceTimer = null;
+  const DEBOUNCE_MS = 500;
+
+  const observer = new MutationObserver((mutations) => {
+    const root = document.getElementById('lucid-stats-extension-root');
+    const onlyOurChanges = root && mutations.every((m) => m.target === root || root.contains(m.target));
+    if (onlyOurChanges) return;
+
+    if (injectDebounceTimer) clearTimeout(injectDebounceTimer);
+    injectDebounceTimer = setTimeout(() => {
+      injectDebounceTimer = null;
+      if (document.querySelector('.data-table-section .data-table') || document.querySelector('table.data-table')) {
+        injectPanel();
+      }
+    }, DEBOUNCE_MS);
   });
   observer.observe(document.body, { childList: true, subtree: true });
 })();
