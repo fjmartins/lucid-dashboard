@@ -170,6 +170,10 @@
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+.lucid-stat-card-hero .lucid-stat-value {
+  font-size: 22px;
+}
+
 .lucid-stat-label {
   font-size: 10px;
   font-weight: 600;

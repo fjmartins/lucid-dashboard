@@ -2,12 +2,16 @@
   'use strict';
 
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const WORK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
   function parseCurrency(s) {
     if (!s || typeof s !== 'string') return 0;
-    const cleaned = s.replace(/[$,]/g, '').trim();
+    const trimmed = s.trim();
+    const cleaned = trimmed.replace(/[$,]/g, '').replace(/\s/g, '');
     const n = parseFloat(cleaned);
-    return isNaN(n) ? 0 : n;
+    if (isNaN(n)) return 0;
+    if (trimmed.indexOf('(') !== -1) return -Math.abs(n);
+    return n;
   }
 
   function parsePct(s) {
@@ -32,6 +36,8 @@
     return rows.map((tr) => {
       const netPnlText = getCellText(tr, 'Net PnL');
       const netPnl = parseCurrency(netPnlText);
+      const pnlHigh = parseCurrency(getCellText(tr, 'PnL High'));
+      const pnlLow = parseCurrency(getCellText(tr, 'PnL Low'));
       const symbolEl = tr.querySelector('.symbol-badge');
       const symbol = symbolEl ? (symbolEl.textContent || '').trim() : getCellText(tr, 'Symbol');
       const dateText = getCellText(tr, 'Date');
@@ -40,11 +46,17 @@
       const winPct = parsePct(winPctText);
       const avgWin = parseCurrency(getCellText(tr, 'Avg Win'));
       const avgLoss = parseCurrency(getCellText(tr, 'Avg Loss'));
+      const commission = parseCurrency(getCellText(tr, 'Commission'));
+      const grossPnl = netPnl + commission;
       return {
         date: date,
         dateStr: dateText,
         symbol,
         netPnl,
+        grossPnl,
+        commission,
+        pnlHigh,
+        pnlLow,
         winPct,
         avgWin,
         avgLoss,
@@ -57,51 +69,89 @@
   function computeStats(rows) {
     if (!rows.length) {
       return {
-        totalTrades: 0,
-        winningTrades: 0,
-        losingTrades: 0,
-        winRate: 0,
+        sessions: 0,
+        profitableDays: 0,
+        losingDays: 0,
+        dayWinRatePct: 0,
         grossProfit: 0,
-        grossLoss: 0,
+        grossPnl: 0,
+        netProfit: 0,
+        netLoss: 0,
+        totalCommission: 0,
         profitFactor: 0,
         netPnl: 0,
         expectancy: 0,
-        avgWin: 0,
-        avgLoss: 0,
-        largestWin: 0,
-        largestLoss: 0,
+        avgWinPerDay: 0,
+        avgLossPerDay: 0,
+        bestDayNet: 0,
+        worstDayNet: 0,
+        bestIntradayHigh: 0,
+        worstIntradayLow: 0,
         avgWinPct: 0,
       };
     }
-    const wins = rows.filter((r) => r.netPnl > 0);
-    const losses = rows.filter((r) => r.netPnl < 0);
-    const grossProfit = wins.reduce((s, r) => s + r.netPnl, 0);
-    const grossLoss = Math.abs(losses.reduce((s, r) => s + r.netPnl, 0));
+    const byDate = {};
+    rows.forEach((r) => {
+      const key = r.dateStr || (r.date ? r.date.toISOString().slice(0, 10) : '');
+      if (!key) return;
+      if (!byDate[key]) byDate[key] = [];
+      byDate[key].push(r);
+    });
+    const dateTotals = Object.keys(byDate).map((key) => ({
+      date: key,
+      netPnl: byDate[key].reduce((s, r) => s + r.netPnl, 0),
+      grossPnl: byDate[key].reduce((s, r) => s + (r.grossPnl || r.netPnl + (r.commission || 0)), 0),
+    }));
+    const profitableDays = dateTotals.filter((d) => d.netPnl > 0).length;
+    const losingDays = dateTotals.filter((d) => d.netPnl < 0).length;
+    const totalTradingDays = dateTotals.length;
+    const dayWinRatePct = totalTradingDays ? (profitableDays / totalTradingDays) * 100 : 0;
+
+    // Profit factor = total gross (pre-comm) from profitable days ÷ total gross from losing days (standard formula, day-based)
+    const grossProfitFromDays = dateTotals.filter((d) => d.grossPnl > 0).reduce((s, d) => s + d.grossPnl, 0);
+    const grossLossFromDays = Math.abs(dateTotals.filter((d) => d.grossPnl < 0).reduce((s, d) => s + d.grossPnl, 0));
+    const profitFactor = grossLossFromDays > 0 ? grossProfitFromDays / grossLossFromDays : (grossProfitFromDays > 0 ? 999 : 0);
+
+    const profitable = rows.filter((r) => r.netPnl > 0);
+    const losing = rows.filter((r) => r.netPnl < 0);
+    const netProfit = profitable.reduce((s, r) => s + r.netPnl, 0);
+    const netLoss = Math.abs(losing.reduce((s, r) => s + r.netPnl, 0));
     const netPnl = rows.reduce((s, r) => s + r.netPnl, 0);
-    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
-    const winRate = rows.length ? (wins.length / rows.length) * 100 : 0;
-    const avgWin = wins.length ? wins.reduce((s, r) => s + r.netPnl, 0) / wins.length : 0;
-    const avgLoss = losses.length ? losses.reduce((s, r) => s + Math.abs(r.netPnl), 0) / losses.length : 0;
-    const expectancy = rows.length ? (winRate / 100) * avgWin - (1 - winRate / 100) * avgLoss : 0;
-    const largestWin = wins.length ? Math.max(...wins.map((r) => r.netPnl)) : 0;
-    const largestLoss = losses.length ? Math.min(...losses.map((r) => r.netPnl)) : 0;
+    const totalCommission = rows.reduce((s, r) => s + (r.commission || 0), 0);
+    const grossProfit = rows.filter((r) => r.grossPnl > 0).reduce((s, r) => s + r.grossPnl, 0);
+    const grossLoss = Math.abs(rows.filter((r) => r.grossPnl < 0).reduce((s, r) => s + r.grossPnl, 0));
+    const grossPnl = grossProfit - grossLoss;
+    const avgWinPerDay = profitable.length ? profitable.reduce((s, r) => s + r.netPnl, 0) / profitable.length : 0;
+    const avgLossPerDay = losing.length ? losing.reduce((s, r) => s + Math.abs(r.netPnl), 0) / losing.length : 0;
+    const expectancy = (dayWinRatePct / 100) * avgWinPerDay - (1 - dayWinRatePct / 100) * avgLossPerDay;
+    const bestDayNet = profitable.length ? Math.max(...profitable.map((r) => r.netPnl)) : 0;
+    const worstDayNet = losing.length ? Math.min(...losing.map((r) => r.netPnl)) : 0;
+    const pnlLows = rows.map((r) => r.pnlLow).filter((v) => typeof v === 'number' && !isNaN(v));
+    const pnlHighs = rows.map((r) => r.pnlHigh).filter((v) => typeof v === 'number' && !isNaN(v));
+    const worstIntradayLow = pnlLows.length ? Math.min(...pnlLows) : (losing.length ? worstDayNet : 0);
+    const bestIntradayHigh = pnlHighs.length ? Math.max(...pnlHighs) : (profitable.length ? bestDayNet : 0);
     const winPcts = rows.map((r) => r.winPct).filter((p) => p > 0);
     const avgWinPct = winPcts.length ? winPcts.reduce((a, b) => a + b, 0) / winPcts.length : 0;
 
     return {
-      totalTrades: rows.length,
-      winningTrades: wins.length,
-      losingTrades: losses.length,
-      winRate,
+      sessions: rows.length,
+      profitableDays,
+      losingDays,
+      dayWinRatePct,
       grossProfit,
-      grossLoss,
+      grossPnl,
+      netProfit,
+      netLoss,
+      totalCommission,
       profitFactor,
       netPnl,
       expectancy,
-      avgWin,
-      avgLoss,
-      largestWin,
-      largestLoss,
+      avgWinPerDay,
+      avgLossPerDay,
+      bestDayNet,
+      worstDayNet,
+      bestIntradayHigh,
+      worstIntradayLow,
       avgWinPct,
     };
   }
@@ -153,7 +203,7 @@
     }
 
     const assetSelectOpts = symbols.map((sym) => `<option value="${sym}" ${assetKey === sym ? 'selected' : ''}>${sym}</option>`).join('');
-    const daySelectOpts = DAYS.map((d) => `<option value="${d}" ${dayKey === d ? 'selected' : ''}>${d}</option>`).join('');
+    const daySelectOpts = WORK_DAYS.map((d) => `<option value="${d}" ${dayKey === d ? 'selected' : ''}>${d}</option>`).join('');
 
     container.innerHTML = `
     <div class="lucid-stats-panel">
@@ -178,53 +228,41 @@
         </div>
       ` : ''}
       <div class="lucid-stats-grid">
-        <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Win rate</span>
-          <span class="lucid-stat-value">${formatPct(currentStats.winRate)}</span>
-        </div>
-        <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Profit factor</span>
-          <span class="lucid-stat-value">${formatNum(currentStats.profitFactor, 2)}</span>
-        </div>
-        <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Total trades</span>
-          <span class="lucid-stat-value">${currentStats.totalTrades}</span>
-        </div>
-        <div class="lucid-stat-card">
+        <div class="lucid-stat-card lucid-stat-card-hero">
           <span class="lucid-stat-label">Net P&L</span>
           <span class="lucid-stat-value ${currentStats.netPnl > 0 ? 'positive' : currentStats.netPnl < 0 ? 'negative' : ''}">${formatMoney(currentStats.netPnl)}</span>
-        </div>
-        <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Gross profit</span>
-          <span class="lucid-stat-value positive">${formatMoney(currentStats.grossProfit)}</span>
-        </div>
-        <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Gross loss</span>
-          <span class="lucid-stat-value negative">${formatMoney(-currentStats.grossLoss)}</span>
         </div>
         <div class="lucid-stat-card">
           <span class="lucid-stat-label">Expectancy</span>
           <span class="lucid-stat-value ${currentStats.expectancy > 0 ? 'positive' : currentStats.expectancy < 0 ? 'negative' : ''}">${formatMoney(currentStats.expectancy)}</span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Avg win</span>
-          <span class="lucid-stat-value positive">${formatMoney(currentStats.avgWin)}</span>
+          <span class="lucid-stat-label">Day win rate</span>
+          <span class="lucid-stat-value">${formatPct(currentStats.dayWinRatePct)}</span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Avg loss</span>
-          <span class="lucid-stat-value negative">${formatMoney(-currentStats.avgLoss)}</span>
+          <span class="lucid-stat-label">Profit factor</span>
+          <span class="lucid-stat-value">${formatNum(currentStats.profitFactor, 2)}</span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Largest win</span>
-          <span class="lucid-stat-value positive">${formatMoney(currentStats.largestWin)}</span>
+          <span class="lucid-stat-label">${viewMode === 'asset' ? 'Profitable / Losing days (this asset)' : viewMode === 'day' ? 'Profitable / Losing days (this weekday)' : 'Profitable / Losing days'}</span>
+          <span class="lucid-stat-value">${currentStats.profitableDays} / ${currentStats.losingDays}</span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Largest loss</span>
-          <span class="lucid-stat-value negative">${formatMoney(currentStats.largestLoss)}</span>
+          <span class="lucid-stat-label">Gross PnL</span>
+          <span class="lucid-stat-value ${currentStats.grossPnl > 0 ? 'positive' : currentStats.grossPnl < 0 ? 'negative' : ''}">${formatMoney(currentStats.grossPnl)}</span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Wins / Losses</span>
-          <span class="lucid-stat-value">${currentStats.winningTrades} / ${currentStats.losingTrades}</span>
+          <span class="lucid-stat-label">Commission</span>
+          <span class="lucid-stat-value">${formatMoney(-currentStats.totalCommission)}</span>
+        </div>
+        <div class="lucid-stat-card">
+          <span class="lucid-stat-label">Worst intraday</span>
+          <span class="lucid-stat-value negative">${formatMoney(currentStats.worstIntradayLow)}</span>
+        </div>
+        <div class="lucid-stat-card">
+          <span class="lucid-stat-label">Worst day</span>
+          <span class="lucid-stat-value negative">${formatMoney(currentStats.worstDayNet)}</span>
         </div>
       </div>
     </div>
@@ -234,7 +272,7 @@
       btn.addEventListener('click', () => {
         const v = btn.getAttribute('data-view');
         const nextAsset = v === 'asset' && symbols.length ? symbols[0] : null;
-        const nextDay = v === 'day' ? DAYS[0] : null;
+        const nextDay = v === 'day' ? WORK_DAYS[0] : null;
         renderPanel(container, allRows, v, nextAsset, nextDay);
         attachListeners(container, allRows);
       });
