@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Lucid Trading Stats",
+  "version": "1.0.0",
+  "description": "Improved dashboard: win rate, profit factor, and stats by asset or day of week",
+  "permissions": [],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://dash.lucidtrading.com/*",
+        "https://*.lucidtrading.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+}
