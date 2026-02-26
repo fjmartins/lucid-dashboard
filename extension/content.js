@@ -66,6 +66,9 @@
         expectancy: 0,
         worstDayNet: 0,
         worstIntradayLow: 0,
+        avgWin: 0,
+        avgLoss: 0,
+        avgRR: 0,
       };
     }
     const byDate = {};
@@ -99,9 +102,10 @@
     const grossProfit = rows.filter((r) => r.grossPnl > 0).reduce((s, r) => s + r.grossPnl, 0);
     const grossLoss = Math.abs(rows.filter((r) => r.grossPnl < 0).reduce((s, r) => s + r.grossPnl, 0));
     const grossPnl = grossProfit - grossLoss;
-    const avgWinPerDay = profitable.length ? profitable.reduce((s, r) => s + r.netPnl, 0) / profitable.length : 0;
-    const avgLossPerDay = losing.length ? losing.reduce((s, r) => s + Math.abs(r.netPnl), 0) / losing.length : 0;
-    const expectancy = (dayWinRatePct / 100) * avgWinPerDay - (1 - dayWinRatePct / 100) * avgLossPerDay;
+    const avgWin = profitable.length ? profitable.reduce((s, r) => s + r.netPnl, 0) / profitable.length : 0;
+    const avgLoss = losing.length ? losing.reduce((s, r) => s + Math.abs(r.netPnl), 0) / losing.length : 0;
+    const expectancy = (dayWinRatePct / 100) * avgWin - (1 - dayWinRatePct / 100) * avgLoss;
+    const avgRR = avgLoss > 0 ? avgWin / avgLoss : (avgWin > 0 ? 999 : 0);
     const worstDayNet = losing.length ? Math.min(...losing.map((r) => r.netPnl)) : 0;
     const pnlLows = rows.map((r) => r.pnlLow).filter((v) => typeof v === 'number' && !isNaN(v));
     const worstIntradayLow = pnlLows.length ? Math.min(...pnlLows) : (losing.length ? worstDayNet : 0);
@@ -117,6 +121,9 @@
       expectancy,
       worstDayNet,
       worstIntradayLow,
+      avgWin,
+      avgLoss,
+      avgRR,
     };
   }
 
@@ -219,12 +226,12 @@
           <span class="lucid-stat-value">${formatMoney(-currentStats.totalCommission)}</span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Worst intraday</span>
-          <span class="lucid-stat-value negative">${formatMoney(currentStats.worstIntradayLow)}</span>
+          <span class="lucid-stat-label">Avg win / Avg loser</span>
+          <span class="lucid-stat-value">${formatMoney(currentStats.avgWin)} / ${formatMoney(-currentStats.avgLoss)} <span class="lucid-stat-sub">RR ${formatNum(currentStats.avgRR, 2)}</span></span>
         </div>
         <div class="lucid-stat-card">
-          <span class="lucid-stat-label">Worst day</span>
-          <span class="lucid-stat-value negative">${formatMoney(currentStats.worstDayNet)}</span>
+          <span class="lucid-stat-label">Worst day / intraday</span>
+          <span class="lucid-stat-value negative">${formatMoney(currentStats.worstDayNet)} / ${formatMoney(currentStats.worstIntradayLow)}</span>
         </div>
       </div>
     </div>
